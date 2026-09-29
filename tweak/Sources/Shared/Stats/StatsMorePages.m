@@ -309,3 +309,108 @@ void SGStatsShareWrapped(UIViewController *owner, SGStatsEntity entity) {
     share.popoverPresentationController.sourceView = owner.view;
     [owner presentViewController:share animated:YES completion:nil];
 }
+
+#pragma mark - calendar
+
+@interface SGStatsCalendarView : UIView
+@property (nonatomic, copy) NSDictionary<NSNumber *, NSNumber *> *minutesByDay;
+@end
+
+@implementation SGStatsCalendarView
+
+- (void)setMinutesByDay:(NSDictionary<NSNumber *, NSNumber *> *)minutesByDay {
+    _minutesByDay = minutesByDay;
+    [self setNeedsDisplay];
+}
+
+- (void)drawRect:(CGRect)rect {
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSInteger todayStart = (NSInteger)([[calendar startOfDayForDate:NSDate.date] timeIntervalSince1970] / 86400) * 86400;
+    NSInteger weekday = [calendar component:NSCalendarUnitWeekday fromDate:[NSDate dateWithTimeIntervalSince1970:todayStart]];   // 1 = Sunday
+    NSInteger start = todayStart - (52 * 7 + (weekday - 1)) * 86400;
+
+    int64_t max = 1;
+    for (NSNumber *value in self.minutesByDay.allValues) if (value.longLongValue > max) max = value.longLongValue;
+
+    CGFloat columns = 53, gap = 2;
+    CGFloat cell = (CGRectGetWidth(rect) - gap * (columns - 1)) / columns;
+    for (NSInteger column = 0; column < 53; column++) {
+        for (NSInteger row = 0; row < 7; row++) {
+            NSInteger day = start + (column * 7 + row) * 86400;
+            if (day > todayStart) continue;
+            int64_t ms = [self.minutesByDay[@(day)] longLongValue];
+            CGFloat intensity = ms > 0 ? 0.2 + 0.8 * (CGFloat)ms / (CGFloat)max : 0.05;
+            CGRect cellRect = CGRectMake(column * (cell + gap), row * (cell + gap), cell, cell);
+            [[UIColor colorWithWhite:1 alpha:intensity] setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:cellRect cornerRadius:2] fill];
+        }
+    }
+}
+
+@end
+
+@interface SGStatsCalendarPageController : SGPage
+@end
+
+@implementation SGStatsCalendarPageController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Calendar";
+    NSMutableDictionary<NSNumber *, NSNumber *> *map = [NSMutableDictionary dictionary];
+    for (SGStatsDay *day in [SGStatsStore.shared dailySince:0]) map[@(day.day)] = @(day.ms);
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 200)];
+    SGStatsCalendarView *calendar = [[SGStatsCalendarView alloc] initWithFrame:CGRectInset(header.bounds, 16, 8)];
+    calendar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    calendar.minutesByDay = map;
+    [header addSubview:calendar];
+    self.tableView.tableHeaderView = header;
+}
+
+@end
+
+UIViewController *SGStatsCalendarPage(void) {
+    return [SGStatsCalendarPageController new];
+}
+
+#pragma mark - years and breakdowns
+
+@interface SGStatsListPageController : SGPage
+@end
+
+@implementation SGStatsListPageController {
+    NSArray<SGStatsEntry *> *_entries;
+    NSString *_heading;
+}
+
+- (instancetype)initWithEntries:(NSArray<SGStatsEntry *> *)entries heading:(NSString *)heading {
+    if ((self = [super init])) { _entries = entries; _heading = heading; }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = _heading;
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return _entries.count; }
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    SGStatsEntry *entry = _entries[indexPath.row];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"list"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"list"];
+    cell.textLabel.text = entry.name;
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ plays · %@", countText(entry.plays), durationText(entry.ms)];
+    return cell;
+}
+
+@end
+
+UIViewController *SGStatsYearsPage(void) {
+    return [[SGStatsListPageController alloc] initWithEntries:[SGStatsStore.shared years] heading:@"By year"];
+}
+
+UIViewController *SGStatsBreakdownPage(SGStatsBreakdown kind, SGStatsRange range) {
+    NSString *heading = kind == SGStatsBreakdownPlatform ? @"Platforms" : (kind == SGStatsBreakdownShuffle ? @"Shuffle" : @"Online / offline");
+    return [[SGStatsListPageController alloc] initWithEntries:[SGStatsStore.shared breakdown:kind since:SGStatsRangeSince(range)] heading:heading];
+}

@@ -298,6 +298,51 @@ static NSString *orderClause(SGStatsOrder order) {
     return entries;
 }
 
+- (NSArray<SGStatsEntry *> *)years {
+    NSMutableArray<SGStatsEntry *> *entries = [NSMutableArray array];
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        const char *sql = "SELECT strftime('%Y', ts,'unixepoch','localtime') AS y, COUNT(*), SUM(ms)"
+                          " FROM plays GROUP BY y ORDER BY y DESC;";
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(self->_db, sql, -1, &stmt, NULL) != SQLITE_OK) return;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            SGStatsEntry *entry = [SGStatsEntry new];
+            const char *text = (const char *)sqlite3_column_text(stmt, 0);
+            entry.name = text ? @(text) : @"—";
+            entry.plays = (NSInteger)sqlite3_column_int64(stmt, 1);
+            entry.ms = sqlite3_column_int64(stmt, 2);
+            [entries addObject:entry];
+        }
+        sqlite3_finalize(stmt);
+    });
+    return entries;
+}
+
+- (NSArray<SGStatsEntry *> *)breakdown:(SGStatsBreakdown)kind since:(int64_t)since {
+    NSString *column = kind == SGStatsBreakdownPlatform ? @"IFNULL(NULLIF(platform,''),'unknown')"
+                     : (kind == SGStatsBreakdownShuffle ? @"CASE WHEN shuffle THEN 'Shuffled' ELSE 'Not shuffled' END"
+                     : @"CASE WHEN offline THEN 'Offline' ELSE 'Online' END");
+    NSString *sql = [NSString stringWithFormat:@"SELECT %@ AS label, COUNT(*), SUM(ms) FROM plays WHERE ts >= ? GROUP BY label ORDER BY SUM(ms) DESC;", column];
+    NSMutableArray<SGStatsEntry *> *entries = [NSMutableArray array];
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(self->_db, sql.UTF8String, -1, &stmt, NULL) != SQLITE_OK) return;
+        sqlite3_bind_int64(stmt, 1, since);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            SGStatsEntry *entry = [SGStatsEntry new];
+            const char *text = (const char *)sqlite3_column_text(stmt, 0);
+            entry.name = text ? @(text) : @"—";
+            entry.plays = (NSInteger)sqlite3_column_int64(stmt, 1);
+            entry.ms = sqlite3_column_int64(stmt, 2);
+            [entries addObject:entry];
+        }
+        sqlite3_finalize(stmt);
+    });
+    return entries;
+}
+
 - (SGStatsSummary *)summarySince:(int64_t)since {
     SGStatsSummary *summary = [SGStatsSummary new];
     dispatch_sync(_queue, ^{

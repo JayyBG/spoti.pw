@@ -31,6 +31,10 @@ typedef NS_ENUM(NSInteger, SGStatsSource) { SGStatsSourceLive = 0, SGStatsSource
 - (SGStatsSummary *)summarySince:(int64_t)since;
 - (NSArray<SGStatsDay *> *)dailySince:(int64_t)since;
 - (NSArray<SGStatsEntry *> *)discover:(SGStatsDiscover)kind entity:(SGStatsEntity)entity since:(int64_t)since until:(int64_t)until limit:(NSInteger)limit;
+// Per calendar year, newest first: name is the year, with its plays and milliseconds.
+- (NSArray<SGStatsEntry *> *)years;
+// The plays split by platform, shuffle or offline, largest first: name is the label.
+- (NSArray<SGStatsEntry *> *)breakdown:(SGStatsBreakdown)kind since:(int64_t)since;
 
 // Unix seconds of the earliest and latest play, 0 when there are none.
 - (int64_t)earliestTs;

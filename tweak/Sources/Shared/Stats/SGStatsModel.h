@@ -8,6 +8,8 @@ typedef NS_ENUM(NSInteger, SGStatsRange) {
 // On repeat: most played in the range. New: first heard in the range. Forgotten: played a lot before
 // the range and not since.
 typedef NS_ENUM(NSInteger, SGStatsDiscover) { SGStatsDiscoverOnRepeat, SGStatsDiscoverNew, SGStatsDiscoverForgotten };
+// The stored attribute a breakdown page splits the plays by.
+typedef NS_ENUM(NSInteger, SGStatsBreakdown) { SGStatsBreakdownPlatform, SGStatsBreakdownShuffle, SGStatsBreakdownOffline };
 
 NSString *SGStatsRangeName(SGStatsRange range);
 NSString *SGStatsEntityName(SGStatsEntity entity);

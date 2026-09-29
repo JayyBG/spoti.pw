@@ -278,6 +278,11 @@ static id dictValue(id object, NSString *key) {
     UIMenu *menu = [UIMenu menuWithChildren:@[
         [UIAction actionWithTitle:@"Recent plays" image:[UIImage systemImageNamed:@"clock.arrow.circlepath"] identifier:nil handler:^(UIAction *action) { SGShowPage(weak, SGStatsHistoryPage()); }],
         [UIAction actionWithTitle:@"Listening clock" image:[UIImage systemImageNamed:@"square.grid.3x3"] identifier:nil handler:^(UIAction *action) { SGShowPage(weak, SGStatsClockPage()); }],
+        [UIAction actionWithTitle:@"Calendar" image:[UIImage systemImageNamed:@"calendar"] identifier:nil handler:^(UIAction *action) { [weak openCalendar]; }],
+        [UIAction actionWithTitle:@"By year" image:[UIImage systemImageNamed:@"calendar.badge.clock"] identifier:nil handler:^(UIAction *action) { [weak openYears]; }],
+        [UIAction actionWithTitle:@"Platforms" image:[UIImage systemImageNamed:@"iphone"] identifier:nil handler:^(UIAction *action) { [weak openBreakdown:SGStatsBreakdownPlatform]; }],
+        [UIAction actionWithTitle:@"Shuffle" image:[UIImage systemImageNamed:@"shuffle"] identifier:nil handler:^(UIAction *action) { [weak openBreakdown:SGStatsBreakdownShuffle]; }],
+        [UIAction actionWithTitle:@"Online / offline" image:[UIImage systemImageNamed:@"wifi.slash"] identifier:nil handler:^(UIAction *action) { [weak openBreakdown:SGStatsBreakdownOffline]; }],
         [UIAction actionWithTitle:@"On repeat" image:[UIImage systemImageNamed:@"repeat"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverOnRepeat]; }],
         [UIAction actionWithTitle:@"New this period" image:[UIImage systemImageNamed:@"sparkles"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverNew]; }],
         [UIAction actionWithTitle:@"Forgotten favourites" image:[UIImage systemImageNamed:@"moon.zzz"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverForgotten]; }],
@@ -297,6 +302,10 @@ static id dictValue(id object, NSString *key) {
 - (void)shareWrapped {
     SGStatsShareWrapped(self, _entity);
 }
+
+- (void)openCalendar { SGShowPage(self, SGStatsCalendarPage()); }
+- (void)openYears { SGShowPage(self, SGStatsYearsPage()); }
+- (void)openBreakdown:(SGStatsBreakdown)kind { SGShowPage(self, SGStatsBreakdownPage(kind, _range)); }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];

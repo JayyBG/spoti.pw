@@ -25,6 +25,9 @@ UIViewController *SGStatsHistoryPage(void);
 UIViewController *SGStatsClockPage(void);
 UIViewController *SGStatsDiscoverPage(SGStatsDiscover kind, SGStatsEntity entity, SGStatsRange range);
 UIViewController *SGStatsDetailPage(SGStatsEntry *entry, SGStatsEntity entity);
+UIViewController *SGStatsCalendarPage(void);
+UIViewController *SGStatsYearsPage(void);
+UIViewController *SGStatsBreakdownPage(SGStatsBreakdown kind, SGStatsRange range);
 void SGStatsShareWrapped(UIViewController *owner, SGStatsEntity entity);
 
 // Starts the player observer that records plays. Called once from the tweak's %ctor; a no-op while

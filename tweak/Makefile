@@ -17,8 +17,8 @@ TWEAK_NAME := spotifyglass
 spotifyglass_FILES := $(shell find Sources -name '*.m' -o -name '*.x' -o -name '*.swift' | sort)
 spotifyglass_CFLAGS := -fobjc-arc -ISources -DSG_VERSION=\"$(SG_VERSION)\"
 spotifyglass_FRAMEWORKS := UIKit QuartzCore UniformTypeIdentifiers MediaPlayer CoreImage AudioToolbox AVFoundation CoreHaptics Accelerate Network Metal
-# Shared/Stats keeps its plays in a SQLite file in the app's Documents.
-spotifyglass_LIBRARIES := sqlite3
+# Shared/Stats keeps its plays in a SQLite file in the app's Documents and unpacks the export's ZIP.
+spotifyglass_LIBRARIES := sqlite3 z
 # Runtime swizzling instead of Substrate so the dylib has no extra dependency inside the IPA.
 spotifyglass_LOGOS_DEFAULT_GENERATOR := internal
 

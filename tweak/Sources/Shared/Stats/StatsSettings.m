@@ -22,7 +22,7 @@
 }
 
 - (void)present {
-    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeJSON] asCopy:NO];
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeZIP, UTTypeJSON] asCopy:NO];
     picker.allowsMultipleSelection = YES;
     picker.delegate = self;
     [SGTopController() presentViewController:picker animated:YES completion:nil];
@@ -61,7 +61,7 @@ static void eraseStats(void) {
 
 UIViewController *SGStatsSettingsPage(void) {
     SGModRow *enable = SGOptionRow(@"Listening stats", @"Keeps a local history of what you play", SGKeyStats);
-    SGModRow *import = SGActionRow(@"Import streaming history", @"Spotify → Account → Privacy → Download your data", ^{
+    SGModRow *import = SGActionRow(@"Import streaming history", @"Spotify → Account → Privacy → Download your data (the .zip)", ^{
         [SGStatsImportUI.shared present];
     });
     SGModRow *plays = SGStatRow(@"Plays recorded", ^NSString *{ return @(SGStatsStore.shared.playCount).stringValue; });

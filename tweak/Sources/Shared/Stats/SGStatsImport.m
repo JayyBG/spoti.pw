@@ -1,5 +1,6 @@
 #import "SGStatsImport.h"
 #import "SGStatsStore.h"
+#import "SGStatsZip.h"
 
 @implementation SGStatsImporter
 
@@ -25,17 +26,10 @@ static NSDate *dateFromLegacy(NSString *endTime) {
     return [formatter dateFromString:endTime];
 }
 
-+ (NSInteger)importFileAtURL:(NSURL *)url error:(NSError **)error {
-    BOOL scoped = [url startAccessingSecurityScopedResource];
-    NSData *data = [NSData dataWithContentsOfURL:url options:0 error:error];
-    if (scoped) [url stopAccessingSecurityScopedResource];
-    if (!data) return 0;
-
-    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:error];
-    if (![root isKindOfClass:NSArray.class]) {
-        if (error) *error = [NSError errorWithDomain:@"spotifyglass.stats" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Not a Spotify streaming-history export."}];
-        return 0;
-    }
+// -1 when the data is not one of the export's arrays of plays, else the count added.
++ (NSInteger)addPlaysFromData:(NSData *)data {
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    if (![root isKindOfClass:NSArray.class]) return -1;
 
     NSMutableArray<SGStatsPlay *> *plays = [NSMutableArray array];
     for (id item in (NSArray *)root) {
@@ -70,6 +64,35 @@ static NSDate *dateFromLegacy(NSString *endTime) {
 
     [SGStatsStore.shared addPlays:plays];
     return plays.count;
+}
+
++ (NSInteger)importFileAtURL:(NSURL *)url error:(NSError **)error {
+    BOOL scoped = [url startAccessingSecurityScopedResource];
+    NSData *data = [NSData dataWithContentsOfURL:url options:0 error:error];
+    if (scoped) [url stopAccessingSecurityScopedResource];
+    if (!data) return 0;
+
+    // The export is a ZIP; the picker may also be handed one of its JSON files directly.
+    if ([url.pathExtension.lowercaseString isEqualToString:@"zip"]) {
+        NSDictionary<NSString *, NSData *> *entries = [SGStatsZip JSONEntriesInData:data];
+        if (!entries.count) {
+            if (error) *error = [NSError errorWithDomain:@"spotifyglass.stats" code:2 userInfo:@{NSLocalizedDescriptionKey: @"No JSON found in that ZIP."}];
+            return 0;
+        }
+        NSInteger added = 0;
+        for (NSData *entry in entries.allValues) {
+            NSInteger count = [self addPlaysFromData:entry];
+            if (count > 0) added += count;
+        }
+        return added;
+    }
+
+    NSInteger added = [self addPlaysFromData:data];
+    if (added < 0) {
+        if (error) *error = [NSError errorWithDomain:@"spotifyglass.stats" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Not a Spotify streaming-history export."}];
+        return 0;
+    }
+    return added;
 }
 
 @end

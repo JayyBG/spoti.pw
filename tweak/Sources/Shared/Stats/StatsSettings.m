@@ -7,6 +7,8 @@
 #import "Settings/SGPageStyle.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+static NSString *historyRange(void);
+
 // The document picker's delegate is held weakly, so one of these stays alive across the import.
 @interface SGStatsImportUI : NSObject <UIDocumentPickerDelegate>
 + (instancetype)shared;

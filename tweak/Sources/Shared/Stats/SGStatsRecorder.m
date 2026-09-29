@@ -74,7 +74,7 @@ void SGStatsStart(void) {
         _artistURI = SGURIString(track.artistURI);
         _album = metadata[@"album_name"] ?: metadata[@"album_title"];
         _albumURI = metadata[@"album_uri"];
-        _artwork = metadata[@"image_small_url"] ?: metadata[@"image_url"];
+        _artwork = metadata[@"image_xlarge_url"] ?: metadata[@"image_large_url"] ?: metadata[@"image_url"] ?: metadata[@"image_small_url"];
     }
     _playing = state.isPlaying && !state.isPaused;
 }

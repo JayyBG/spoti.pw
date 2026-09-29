@@ -116,7 +116,7 @@ static BOOL enumerateArrayEntries(NSData *data, void (^block)(NSDictionary *entr
 }
 
 + (NSInteger)importFileAtURL:(NSURL *)url error:(NSError **)error {
-    NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:error];
+    NSData *data = [NSData dataWithContentsOfURL:url options:0 error:error];
     if (!data) {
         SGStatsLogLine(@"read failed: %@ (%@)", url.lastPathComponent, error ? *error : nil);
         return 0;
@@ -125,9 +125,16 @@ static BOOL enumerateArrayEntries(NSData *data, void (^block)(NSDictionary *entr
 
     if ([url.pathExtension.lowercaseString isEqualToString:@"zip"]) {
         __block NSInteger added = 0, files = 0;
-        [SGStatsZip enumerateJSONEntriesInData:data using:^(NSData *json) {
-            NSInteger count = [self addPlaysFromData:json];
-            if (count > 0) { added += count; files++; SGStatsLogLine(@"+%ld plays (%ld files so far)", (long)count, (long)files); }
+        [SGStatsZip enumerateJSONEntriesInData:data using:^(NSString *name, NSData *json) {
+            // Only the streaming-history files carry plays; the export is full of other JSON.
+            if (![name.lowercaseString containsString:@"streaming"]) return;
+            @try {
+                NSInteger count = [self addPlaysFromData:json];
+                SGStatsLogLine(@"%@: %ld plays", name.lastPathComponent, (long)count);
+                if (count > 0) { added += count; files++; }
+            } @catch (NSException *exception) {
+                SGStatsLogLine(@"EXCEPTION on %@: %@", name.lastPathComponent, exception.reason);
+            }
         }];
         SGStatsLogLine(@"import done: %ld plays from %ld files", (long)added, (long)files);
         if (added == 0) {
@@ -136,7 +143,12 @@ static BOOL enumerateArrayEntries(NSData *data, void (^block)(NSDictionary *entr
         return added;
     }
 
-    NSInteger added = [self addPlaysFromData:data];
+    NSInteger added = 0;
+    @try {
+        added = [self addPlaysFromData:data];
+    } @catch (NSException *exception) {
+        SGStatsLogLine(@"EXCEPTION on %@: %@", url.lastPathComponent, exception.reason);
+    }
     if (added < 0) {
         SGStatsLogLine(@"not an array: %@", url.lastPathComponent);
         if (error) *error = [NSError errorWithDomain:@"spotifyglass.stats" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Not a Spotify streaming-history export."}];

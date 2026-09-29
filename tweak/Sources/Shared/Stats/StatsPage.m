@@ -1,6 +1,7 @@
 #import "Stats.h"
 #import "SGStatsModel.h"
 #import "SGStatsStore.h"
+#import "SGStatsLog.h"
 #import "Settings/SGPage.h"
 
 static NSString *durationText(int64_t ms) {
@@ -133,7 +134,10 @@ static NSString *webURLForURI(NSString *uri) {
     [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
         NSString *thumb = [json isKindOfClass:NSDictionary.class] ? json[@"thumbnail_url"] : nil;
-        if (![thumb isKindOfClass:NSString.class] || !thumb.length) return;
+        if (![thumb isKindOfClass:NSString.class] || !thumb.length) {
+            SGStatsLogLine(@"oembed: no thumbnail for %@ (error %@)", uri, error.localizedDescription);
+            return;
+        }
         [thumbs setObject:thumb forKey:uri];
         dispatch_async(dispatch_get_main_queue(), ^{ [self load:thumb into:view]; });
     }] resume];

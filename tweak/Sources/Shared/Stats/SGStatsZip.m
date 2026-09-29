@@ -34,7 +34,7 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
     return output;
 }
 
-+ (void)enumerateJSONEntriesInData:(NSData *)data using:(void (^)(NSData *json))block {
++ (void)enumerateJSONEntriesInData:(NSData *)data using:(void (^)(NSString *name, NSData *json))block {
     if (data.length < 22) return;
     const uint8_t *bytes = data.bytes;
     NSUInteger length = data.length;
@@ -56,7 +56,7 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
     SGStatsLogLine(@"zip: %lu entries", (unsigned long)count);
 
     for (NSUInteger i = 0; i < count; i++) {
-        if (read32(bytes, length, offset) != 0x02014b50) break;
+        if (read32(bytes, length, offset) != 0x02014b50) { SGStatsLogLine(@"zip: central directory ended early at %lu", (unsigned long)i); break; }
         int method = read16(bytes, length, offset + 10);
         NSUInteger compressed = read32(bytes, length, offset + 20);
         NSUInteger uncompressed = read32(bytes, length, offset + 24);
@@ -70,14 +70,16 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
         offset += 46 + nameLength + extraLength + commentLength;
 
         if (![name.pathExtension.lowercaseString isEqualToString:@"json"]) continue;
-        if (compressed == 0xffffffffu || uncompressed == 0xffffffffu) continue;
-        if (read32(bytes, length, localOffset) != 0x04034b50) continue;
+        if (compressed == 0xffffffffu || uncompressed == 0xffffffffu) { SGStatsLogLine(@"zip: %@ is ZIP64, skipped", name.lastPathComponent); continue; }
+        if (read32(bytes, length, localOffset) != 0x04034b50) { SGStatsLogLine(@"zip: %@ has no local header, skipped", name.lastPathComponent); continue; }
         NSUInteger localName = read16(bytes, length, localOffset + 26);
         NSUInteger localExtra = read16(bytes, length, localOffset + 28);
         NSUInteger start = localOffset + 30 + localName + localExtra;
+        SGStatsLogLine(@"zip: %@ method=%d c=%lu u=%lu", name.lastPathComponent, method, (unsigned long)compressed, (unsigned long)uncompressed);
         @autoreleasepool {
             NSData *entry = inflateEntry(bytes, length, start, compressed, uncompressed, method);
-            if (entry) block(entry);
+            if (entry) block(name, entry);
+            else SGStatsLogLine(@"zip: %@ did not inflate", name.lastPathComponent);
         }
     }
 }

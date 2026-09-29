@@ -17,10 +17,10 @@ void SGStatsStart(void) {
 }
 
 @implementation SGStatsRecorder {
-    NSString *_key, *_title, *_artist, *_artistURI, *_album, *_albumURI, *_artwork;
+    NSString *_key, *_title, *_artist, *_artistURI, *_album, *_albumURI, *_artwork, *_contextURI;
     int64_t _startedAt, _accumulatedMs, _durationMs;
     NSTimeInterval _lastTick;
-    BOOL _playing;
+    BOOL _playing, _shuffled;
 }
 
 + (instancetype)shared {
@@ -75,8 +75,12 @@ void SGStatsStart(void) {
         _album = metadata[@"album_name"] ?: metadata[@"album_title"];
         _albumURI = metadata[@"album_uri"];
         _artwork = metadata[@"image_xlarge_url"] ?: metadata[@"image_large_url"] ?: metadata[@"image_url"] ?: metadata[@"image_small_url"];
+        _contextURI = SGURIString(state.contextURI);
+        _shuffled = state.options.shufflingContext;
     }
     _playing = state.isPlaying && !state.isPaused;
+    if (!_contextURI.length) _contextURI = SGURIString(state.contextURI);
+    if (state.options) _shuffled = state.options.shufflingContext;
 }
 
 // Store what was heard of the track that just ended, if it was heard enough of.
@@ -96,6 +100,8 @@ void SGStatsStart(void) {
         play.artwork = _artwork;
         play.ms = ms;
         play.source = SGStatsSourceLive;
+        play.shuffled = _shuffled;
+        play.contextURI = _contextURI;
         [SGStatsStore.shared addPlay:play];
     }
     _key = nil;

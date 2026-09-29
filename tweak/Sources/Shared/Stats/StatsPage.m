@@ -2,6 +2,7 @@
 #import "SGStatsModel.h"
 #import "SGStatsStore.h"
 #import "SGStatsLog.h"
+#import "SGStatsArtwork.h"
 #import "Settings/SGPage.h"
 
 static NSString *durationText(int64_t ms) {
@@ -63,14 +64,6 @@ static NSString *countText(NSInteger count) {
 @end
 
 #pragma mark - artwork cache
-
-// Artwork for a row. A track's picture is the album cover, so an album gets the picture of any track
-// on it, and an artist gets theirs through a track's embed page, which carries the artist URI the
-// import never has; the public oEmbed endpoint answers with the picture for a URI of any kind. What
-// is found is remembered, so a row is fetched once.
-@interface SGStatsArtwork : NSObject
-+ (void)fill:(UIImageView *)view entry:(SGStatsEntry *)entry kind:(SGStatsEntity)kind;
-@end
 
 @implementation SGStatsArtwork
 
@@ -265,13 +258,14 @@ static id dictValue(id object, NSString *key) {
 @end
 
 @implementation SGStatsPageController {
-    UISegmentedControl *_rangeControl, *_entityControl;
+    UISegmentedControl *_rangeControl, *_entityControl, *_sortControl;
     UILabel *_summary;
     SGStatsChartView *_chart;
     NSArray<SGStatsEntry *> *_entries;
+    NSDictionary<NSString *, NSNumber *> *_previousRanks;
     SGStatsRange _range;
     SGStatsEntity _entity;
-    NSInteger _generation;
+    SGStatsOrder _order;
 }
 
 - (void)viewDidLoad {
@@ -279,10 +273,29 @@ static id dictValue(id object, NSString *key) {
     self.title = @"Stats";
     _range = SGStatsRangeLifetime;
     _entity = SGStatsEntityTrack;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] style:UIBarButtonItemStylePlain target:self action:@selector(openSettings)];
+    _order = SGStatsOrderPlays;
+    __weak SGStatsPageController *weak = self;
+    UIMenu *menu = [UIMenu menuWithChildren:@[
+        [UIAction actionWithTitle:@"Recent plays" image:[UIImage systemImageNamed:@"clock.arrow.circlepath"] identifier:nil handler:^(UIAction *action) { SGShowPage(weak, SGStatsHistoryPage()); }],
+        [UIAction actionWithTitle:@"Listening clock" image:[UIImage systemImageNamed:@"square.grid.3x3"] identifier:nil handler:^(UIAction *action) { SGShowPage(weak, SGStatsClockPage()); }],
+        [UIAction actionWithTitle:@"On repeat" image:[UIImage systemImageNamed:@"repeat"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverOnRepeat]; }],
+        [UIAction actionWithTitle:@"New this period" image:[UIImage systemImageNamed:@"sparkles"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverNew]; }],
+        [UIAction actionWithTitle:@"Forgotten favourites" image:[UIImage systemImageNamed:@"moon.zzz"] identifier:nil handler:^(UIAction *action) { [weak discover:SGStatsDiscoverForgotten]; }],
+        [UIAction actionWithTitle:@"Share Wrapped" image:[UIImage systemImageNamed:@"square.and.arrow.up"] identifier:nil handler:^(UIAction *action) { [weak shareWrapped]; }],
+        [UIAction actionWithTitle:@"Stats settings" image:[UIImage systemImageNamed:@"gearshape"] identifier:nil handler:^(UIAction *action) { [weak openSettings]; }],
+    ]];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] menu:menu];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:SGStatsChangedNotification object:nil];
     [self buildHeader];
     [self reload];
+}
+
+- (void)discover:(SGStatsDiscover)kind {
+    SGShowPage(self, SGStatsDiscoverPage(kind, _entity, _range));
+}
+
+- (void)shareWrapped {
+    SGStatsShareWrapped(self, _entity);
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -308,6 +321,11 @@ static id dictValue(id object, NSString *key) {
     [_entityControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
     [_entityControl.heightAnchor constraintEqualToConstant:32].active = YES;
 
+    _sortControl = [[UISegmentedControl alloc] initWithItems:@[@"Plays", @"Minutes", @"Days"]];
+    _sortControl.selectedSegmentIndex = _order;
+    [_sortControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
+    [_sortControl.heightAnchor constraintEqualToConstant:32].active = YES;
+
     _summary = [UILabel new];
     _summary.numberOfLines = 3;
     _summary.font = [UIFont systemFontOfSize:15];
@@ -321,7 +339,7 @@ static id dictValue(id object, NSString *key) {
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
-    for (UIView *view in @[_rangeControl, _entityControl, _summary, _chart]) [stack addArrangedSubview:view];
+    for (UIView *view in @[_rangeControl, _entityControl, _sortControl, _summary, _chart]) [stack addArrangedSubview:view];
     [header addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:header.topAnchor constant:8],
@@ -352,12 +370,37 @@ static id dictValue(id object, NSString *key) {
 - (void)changed {
     _range = (SGStatsRange)_rangeControl.selectedSegmentIndex;
     _entity = (SGStatsEntity)_entityControl.selectedSegmentIndex;
+    _order = (SGStatsOrder)_sortControl.selectedSegmentIndex;
     [self reload];
+}
+
+- (NSString *)keyForEntry:(SGStatsEntry *)entry {
+    return [NSString stringWithFormat:@"%@|%@", entry.name.lowercaseString, entry.subtitle.lowercaseString ?: @""];
+}
+
+// ▲/▼ against the previous window of the same length: this 4 weeks against the 4 before it.
+- (NSString *)movementForEntry:(SGStatsEntry *)entry rank:(NSInteger)rank {
+    if (!_previousRanks) return @"";
+    NSNumber *previous = _previousRanks[[self keyForEntry:entry]];
+    if (!previous) return @"▲ new · ";
+    NSInteger delta = previous.integerValue - rank;
+    if (delta > 0) return [NSString stringWithFormat:@"▲%ld · ", (long)delta];
+    if (delta < 0) return [NSString stringWithFormat:@"▼%ld · ", (long)-delta];
+    return @"– · ";
 }
 
 - (void)reload {
     int64_t since = SGStatsRangeSince(_range);
-    _entries = [SGStatsStore.shared top:_entity order:SGStatsOrderPlays since:since limit:100];
+    _entries = [SGStatsStore.shared top:_entity order:_order since:since until:0 limit:100];
+    _previousRanks = nil;
+    if (since > 0) {
+        int64_t now = (int64_t)NSDate.date.timeIntervalSince1970;
+        int64_t from = since - (now - since);
+        NSArray<SGStatsEntry *> *previous = [SGStatsStore.shared top:_entity order:_order since:from until:since limit:200];
+        NSMutableDictionary<NSString *, NSNumber *> *ranks = [NSMutableDictionary dictionary];
+        [previous enumerateObjectsUsingBlock:^(SGStatsEntry *entry, NSUInteger index, BOOL *stop) { ranks[[self keyForEntry:entry]] = @(index + 1); }];
+        _previousRanks = ranks;
+    }
     SGStatsSummary *summary = [SGStatsStore.shared summarySince:since];
     _summary.text = [NSString stringWithFormat:@"%@ · %@ plays\n%@ tracks · %@ albums · %@ artists\n%@",
                      durationText(summary.ms), countText(summary.plays),
@@ -383,12 +426,21 @@ static id dictValue(id object, NSString *key) {
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"entry"];
     SGStatsEntry *entry = _entries[indexPath.row];
     cell.textLabel.text = [NSString stringWithFormat:@"%ld. %@", (long)(indexPath.row + 1), entry.name];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@ plays · %@", entry.subtitle.length ? [entry.subtitle stringByAppendingString:@" · "] : @"", countText(entry.plays), durationText(entry.ms)];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@%@ plays · %@",
+                                 [self movementForEntry:entry rank:indexPath.row + 1],
+                                 entry.subtitle.length ? [entry.subtitle stringByAppendingString:@" · "] : @"",
+                                 countText(entry.plays), durationText(entry.ms)];
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
     cell.imageView.clipsToBounds = YES;
     cell.imageView.layer.cornerRadius = 6;
     [SGStatsArtwork fill:cell.imageView entry:entry kind:_entity];
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row < (NSInteger)_entries.count) SGShowPage(self, SGStatsDetailPage(_entries[indexPath.row], _entity));
 }
 
 @end

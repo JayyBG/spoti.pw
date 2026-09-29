@@ -2,6 +2,9 @@
 // streaming history, held in one SQLite file and shown on a Stats page in Mod Settings. Shared, so
 // both looks get it.
 #import <UIKit/UIKit.h>
+#import "SGStatsModel.h"
+
+@class SGStatsEntry;
 
 #define SGKeyStats @"spotifyglass.stats"
 // Posted when the store gains plays from an import or loses them to an erase, so an open Stats page
@@ -14,6 +17,14 @@ UIViewController *SGStatsSettingsPage(void);
 
 // The Mod Settings row's value: "Off" while the switch is off, else how many plays are stored.
 NSString *SGStatsRowValue(void);
+
+// The pages the Stats screen reaches: the recent plays, the listening clock, the discoveries, one
+// entity in full, and the shareable Wrapped card.
+UIViewController *SGStatsHistoryPage(void);
+UIViewController *SGStatsClockPage(void);
+UIViewController *SGStatsDiscoverPage(SGStatsDiscover kind, SGStatsEntity entity, SGStatsRange range);
+UIViewController *SGStatsDetailPage(SGStatsEntry *entry, SGStatsEntity entity);
+void SGStatsShareWrapped(UIViewController *owner, SGStatsEntity entity);
 
 // Starts the player observer that records plays. Called once from the tweak's %ctor; a no-op while
 // the switch is off.

@@ -21,6 +21,15 @@ NSString *SGStatsEntityName(SGStatsEntity entity) {
     return @"";
 }
 
+NSString *SGStatsOrderName(SGStatsOrder order) {
+    switch (order) {
+        case SGStatsOrderPlays: return @"Plays";
+        case SGStatsOrderMinutes: return @"Minutes";
+        case SGStatsOrderDays: return @"Days";
+    }
+    return @"";
+}
+
 static int64_t unixOf(NSDate *date) {
     return (int64_t)date.timeIntervalSince1970;
 }

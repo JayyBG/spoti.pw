@@ -60,6 +60,13 @@ static SGStatsPlay *playFromEntry(NSDictionary *entry) {
     play.album = album;
     play.ms = ms.longLongValue;
     play.source = SGStatsSourceImport;
+    if (extended) {
+        play.skipped = [entry[@"skipped"] isKindOfClass:NSNumber.class] && [entry[@"skipped"] boolValue];
+        play.offline = [entry[@"offline"] isKindOfClass:NSNumber.class] && [entry[@"offline"] boolValue];
+        play.shuffled = [entry[@"shuffle"] isKindOfClass:NSNumber.class] && [entry[@"shuffle"] boolValue];
+        play.reasonEnd = [entry[@"reason_end"] isKindOfClass:NSString.class] ? entry[@"reason_end"] : nil;
+        play.platform = [entry[@"platform"] isKindOfClass:NSString.class] ? entry[@"platform"] : nil;
+    }
     return play;
 }
 

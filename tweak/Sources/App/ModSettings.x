@@ -24,6 +24,7 @@
 #import "Shared/Privacy/Privacy.h"
 #import "Shared/Flags/Flags.h"
 #import "Shared/AudioEffects/AudioEffectsPage.h"
+#import "Shared/Stats/Stats.h"
 #import "Shared/LiveActivity/LiveActivity.h"
 #import "App/About/About.h"
 #import "App/Donate/Donate.h"
@@ -65,6 +66,9 @@ static UIViewController *modSettingsPage(void) {
         pageRow(@"Lyrics", @"quote.bubble", ^UIViewController *{ return SGLyricsSettingsPage(); }),
         audioEffects,
     ]];
+    SGModRow *stats = pageRow(@"Stats", @"chart.bar", ^UIViewController *{ return SGStatsPage(); });
+    stats.value = ^NSString *{ return SGStatsRowValue(); };
+    [parts addObject:stats];
     if (@available(iOS 17.0, *)) {
         SGModRow *liveActivity = pageRow(@"Live Activity", @"platter.filled.top.iphone", ^UIViewController *{ return SGLiveActivitySettingsPage(); });
         liveActivity.value = ^NSString *{ return SGLiveActivitySummary(); };

@@ -1,0 +1,219 @@
+#import "Stats.h"
+#import "SGStatsModel.h"
+#import "SGStatsStore.h"
+#import "Settings/SGPage.h"
+
+static NSString *durationText(int64_t ms) {
+    int64_t minutes = llround((double)ms / 60000.0);
+    if (minutes < 60) return [NSString stringWithFormat:@"%lld min", minutes];
+    return [NSString stringWithFormat:@"%lldh %lldm", minutes / 60, minutes % 60];
+}
+
+static NSString *countText(NSInteger count) {
+    static NSNumberFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ formatter = [NSNumberFormatter new]; formatter.numberStyle = NSNumberFormatterDecimalStyle; });
+    return [formatter stringFromNumber:@(count)];
+}
+
+#pragma mark - chart
+
+@interface SGStatsChartView : UIView
+@property (nonatomic, copy) NSArray<SGStatsDay *> *days;
+@end
+
+@implementation SGStatsChartView
+
+- (void)setDays:(NSArray<SGStatsDay *> *)days {
+    _days = days;
+    [self setNeedsDisplay];
+}
+
+- (void)drawRect:(CGRect)rect {
+    NSArray<SGStatsDay *> *days = self.days;
+    if (days.count < 2) return;
+    int64_t max = 1;
+    for (SGStatsDay *day in days) if (day.ms > max) max = day.ms;
+    CGFloat gap = 2, width = (CGRectGetWidth(rect) - gap * (days.count - 1)) / days.count;
+    [[UIColor colorWithWhite:1 alpha:0.85] setFill];
+    for (NSInteger i = 0; i < (NSInteger)days.count; i++) {
+        CGFloat height = MAX(2, CGRectGetHeight(rect) * (CGFloat)days[i].ms / (CGFloat)max);
+        CGRect bar = CGRectMake(i * (width + gap), CGRectGetHeight(rect) - height, width, height);
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:bar cornerRadius:MIN(3, width / 2)];
+        [path fill];
+    }
+}
+
+@end
+
+#pragma mark - artwork cache
+
+@interface SGStatsArtwork : NSObject
++ (UIImage *)tileFor:(NSString *)name;
++ (void)load:(NSString *)url into:(UIImageView *)view;
+@end
+
+@implementation SGStatsArtwork
+
++ (UIImage *)tileFor:(NSString *)name {
+    static NSMutableDictionary<NSString *, UIImage *> *tiles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ tiles = [NSMutableDictionary dictionary]; });
+    NSString *letter = name.length ? [[name substringToIndex:1] uppercaseString] : @"?";
+    NSString *key = [NSString stringWithFormat:@"%@|%ld", letter, (long)(name.hash % 6)];
+    UIImage *cached = tiles[key];
+    if (cached) return cached;
+    static NSArray<UIColor *> *colors;
+    static dispatch_once_t colorsOnce;
+    dispatch_once(&colorsOnce, ^{
+        colors = @[[UIColor systemPinkColor], [UIColor systemPurpleColor], [UIColor systemBlueColor],
+                   [UIColor systemTealColor], [UIColor systemGreenColor], [UIColor systemOrangeColor]];
+    });
+    CGSize size = CGSizeMake(44, 44);
+    UIGraphicsBeginImageContextWithOptions(size, NO, 0);
+    [[colors[(NSUInteger)(name.hash % colors.count)] colorWithAlphaComponent:0.85] setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, size.width, size.height) cornerRadius:6] fill];
+    NSDictionary *attributes = @{NSFontAttributeName: [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold],
+                                 NSForegroundColorAttributeName: UIColor.whiteColor};
+    CGSize text = [letter sizeWithAttributes:attributes];
+    [letter drawAtPoint:CGPointMake((size.width - text.width) / 2, (size.height - text.height) / 2) withAttributes:attributes];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    tiles[key] = image;
+    return image;
+}
+
++ (void)load:(NSString *)url into:(UIImageView *)view {
+    if (!url.length) return;
+    static NSCache<NSString *, UIImage *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ cache = [NSCache new]; });
+    UIImage *cached = [cache objectForKey:url];
+    if (cached) { view.image = cached; return; }
+    NSURL *address = [NSURL URLWithString:url];
+    if (!address) return;
+    [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!data) return;
+        UIImage *image = [UIImage imageWithData:data];
+        if (!image) return;
+        [cache setObject:image forKey:url];
+        dispatch_async(dispatch_get_main_queue(), ^{ view.image = image; });
+    }] resume];
+}
+
+@end
+
+#pragma mark - page
+
+@interface SGStatsPageController : SGPage
+@end
+
+@implementation SGStatsPageController {
+    UISegmentedControl *_rangeControl, *_entityControl;
+    UILabel *_summary;
+    SGStatsChartView *_chart;
+    NSArray<SGStatsEntry *> *_entries;
+    SGStatsRange _range;
+    SGStatsEntity _entity;
+    NSInteger _generation;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Stats";
+    _range = SGStatsRange4Weeks;
+    _entity = SGStatsEntityTrack;
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] style:UIBarButtonItemStylePlain target:self action:@selector(openSettings)];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:SGStatsChangedNotification object:nil];
+    [self buildHeader];
+    [self reload];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self reload];
+}
+
+- (void)openSettings {
+    SGShowPage(self, SGStatsSettingsPage());
+}
+
+- (void)buildHeader {
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 258)];
+    header.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+    NSArray<NSString *> *ranges = @[@"24h", @"Week", @"4W", @"6M", @"Year", @"All"];
+    _rangeControl = [[UISegmentedControl alloc] initWithItems:ranges];
+    _rangeControl.frame = CGRectMake(16, 8, header.bounds.size.width - 32, 32);
+    _rangeControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _rangeControl.selectedSegmentIndex = _range;
+    [_rangeControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
+    [header addSubview:_rangeControl];
+
+    _entityControl = [[UISegmentedControl alloc] initWithItems:@[@"Tracks", @"Albums", @"Artists"]];
+    _entityControl.frame = CGRectMake(16, 48, header.bounds.size.width - 32, 32);
+    _entityControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _entityControl.selectedSegmentIndex = _entity;
+    [_entityControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
+    [header addSubview:_entityControl];
+
+    _summary = [[UILabel alloc] initWithFrame:CGRectMake(16, 88, header.bounds.size.width - 32, 44)];
+    _summary.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _summary.numberOfLines = 2;
+    _summary.font = [UIFont systemFontOfSize:15];
+    _summary.textColor = [UIColor colorWithWhite:1 alpha:0.7];
+    [header addSubview:_summary];
+
+    _chart = [[SGStatsChartView alloc] initWithFrame:CGRectMake(16, 142, header.bounds.size.width - 32, 100)];
+    _chart.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _chart.backgroundColor = UIColor.clearColor;
+    [header addSubview:_chart];
+
+    self.tableView.tableHeaderView = header;
+}
+
+- (void)changed {
+    _range = (SGStatsRange)_rangeControl.selectedSegmentIndex;
+    _entity = (SGStatsEntity)_entityControl.selectedSegmentIndex;
+    [self reload];
+}
+
+- (void)reload {
+    int64_t since = SGStatsRangeSince(_range);
+    _entries = [SGStatsStore.shared top:_entity order:SGStatsOrderPlays since:since limit:100];
+    SGStatsSummary *summary = [SGStatsStore.shared summarySince:since];
+    _summary.text = [NSString stringWithFormat:@"%@ · %@ plays\n%@ tracks · %@ albums · %@ artists",
+                     durationText(summary.ms), countText(summary.plays),
+                     countText(summary.tracks), countText(summary.albums), countText(summary.artists)];
+    _chart.days = [SGStatsStore.shared dailySince:since];
+    [self.tableView reloadData];
+}
+
+#pragma mark - table
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return _entries.count;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (!_entries.count) return nil;
+    return [NSString stringWithFormat:@"Top %@", SGStatsEntityName(_entity).lowercaseString];
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry"];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"entry"];
+    SGStatsEntry *entry = _entries[indexPath.row];
+    cell.textLabel.text = [NSString stringWithFormat:@"%ld. %@", (long)(indexPath.row + 1), entry.name];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@ plays · %@", entry.subtitle.length ? [entry.subtitle stringByAppendingString:@" · "] : @"", countText(entry.plays), durationText(entry.ms)];
+    cell.imageView.image = [SGStatsArtwork tileFor:entry.name];
+    NSString *url = entry.artwork;
+    if (url.length) [SGStatsArtwork load:url into:cell.imageView];
+    return cell;
+}
+
+@end
+
+UIViewController *SGStatsPage(void) {
+    return [SGStatsPageController new];
+}

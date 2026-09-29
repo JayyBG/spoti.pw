@@ -10,6 +10,21 @@ static NSString *durationText(int64_t ms) {
     return [NSString stringWithFormat:@"%lldh %lldm", minutes / 60, minutes % 60];
 }
 
+static NSString *dateSpan(int64_t since) {
+    int64_t first = [SGStatsStore.shared earliestTsSince:since];
+    int64_t last = [SGStatsStore.shared latestTsSince:since];
+    if (!first) return @"No plays in this range";
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSDateFormatter new];
+        formatter.dateFormat = @"d MMM yyyy";
+    });
+    return [NSString stringWithFormat:@"%@ – %@",
+            [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:first]],
+            [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:last]]];
+}
+
 static NSString *countText(NSInteger count) {
     static NSNumberFormatter *formatter;
     static dispatch_once_t once;
@@ -195,7 +210,7 @@ static NSString *webURLForURI(NSString *uri) {
     [_entityControl.heightAnchor constraintEqualToConstant:32].active = YES;
 
     _summary = [UILabel new];
-    _summary.numberOfLines = 2;
+    _summary.numberOfLines = 3;
     _summary.font = [UIFont systemFontOfSize:15];
     _summary.textColor = [UIColor colorWithWhite:1 alpha:0.7];
 
@@ -245,9 +260,10 @@ static NSString *webURLForURI(NSString *uri) {
     int64_t since = SGStatsRangeSince(_range);
     _entries = [SGStatsStore.shared top:_entity order:SGStatsOrderPlays since:since limit:100];
     SGStatsSummary *summary = [SGStatsStore.shared summarySince:since];
-    _summary.text = [NSString stringWithFormat:@"%@ · %@ plays\n%@ tracks · %@ albums · %@ artists",
+    _summary.text = [NSString stringWithFormat:@"%@ · %@ plays\n%@ tracks · %@ albums · %@ artists\n%@",
                      durationText(summary.ms), countText(summary.plays),
-                     countText(summary.tracks), countText(summary.albums), countText(summary.artists)];
+                     countText(summary.tracks), countText(summary.albums), countText(summary.artists),
+                     dateSpan(since)];
     _chart.days = [SGStatsStore.shared dailySince:since];
     [self.tableView reloadData];
 }

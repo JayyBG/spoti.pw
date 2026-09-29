@@ -24,4 +24,6 @@ typedef NS_ENUM(NSInteger, SGStatsSource) { SGStatsSourceLive = 0, SGStatsSource
 // Unix seconds of the earliest and latest play, 0 when there are none.
 - (int64_t)earliestTs;
 - (int64_t)latestTs;
+- (int64_t)earliestTsSince:(int64_t)since;
+- (int64_t)latestTsSince:(int64_t)since;
 @end

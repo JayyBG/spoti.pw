@@ -139,37 +139,58 @@ static NSString *countText(NSInteger count) {
 }
 
 - (void)buildHeader {
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 258)];
-    header.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    UIView *header = [UIView new];
 
     NSArray<NSString *> *ranges = @[@"24h", @"Week", @"4W", @"6M", @"Year", @"All"];
     _rangeControl = [[UISegmentedControl alloc] initWithItems:ranges];
-    _rangeControl.frame = CGRectMake(16, 8, header.bounds.size.width - 32, 32);
-    _rangeControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     _rangeControl.selectedSegmentIndex = _range;
     [_rangeControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
-    [header addSubview:_rangeControl];
+    [_rangeControl.heightAnchor constraintEqualToConstant:32].active = YES;
 
     _entityControl = [[UISegmentedControl alloc] initWithItems:@[@"Tracks", @"Albums", @"Artists"]];
-    _entityControl.frame = CGRectMake(16, 48, header.bounds.size.width - 32, 32);
-    _entityControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     _entityControl.selectedSegmentIndex = _entity;
     [_entityControl addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
-    [header addSubview:_entityControl];
+    [_entityControl.heightAnchor constraintEqualToConstant:32].active = YES;
 
-    _summary = [[UILabel alloc] initWithFrame:CGRectMake(16, 88, header.bounds.size.width - 32, 44)];
-    _summary.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _summary = [UILabel new];
     _summary.numberOfLines = 2;
     _summary.font = [UIFont systemFontOfSize:15];
     _summary.textColor = [UIColor colorWithWhite:1 alpha:0.7];
-    [header addSubview:_summary];
 
-    _chart = [[SGStatsChartView alloc] initWithFrame:CGRectMake(16, 142, header.bounds.size.width - 32, 100)];
-    _chart.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _chart = [SGStatsChartView new];
     _chart.backgroundColor = UIColor.clearColor;
-    [header addSubview:_chart];
+    [_chart.heightAnchor constraintEqualToConstant:100].active = YES;
+
+    UIStackView *stack = [UIStackView new];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    for (UIView *view in @[_rangeControl, _entityControl, _summary, _chart]) [stack addArrangedSubview:view];
+    [header addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:header.topAnchor constant:8],
+        [stack.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-12],
+    ]];
 
     self.tableView.tableHeaderView = header;
+}
+
+// The header is a table header view, so its frame has to be given the table's width before it can
+// size itself; without it the stack lays out against a zero width and sits off screen.
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    UIView *header = self.tableView.tableHeaderView;
+    if (!header) return;
+    CGFloat width = self.tableView.bounds.size.width;
+    CGSize size = [header systemLayoutSizeFittingSize:CGSizeMake(width, 0)
+                     withHorizontalFittingPriority:UILayoutPriorityRequired
+                           verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
+    if (fabs(header.frame.size.width - width) > 0.5 || fabs(header.frame.size.height - size.height) > 0.5) {
+        header.frame = CGRectMake(0, 0, width, size.height);
+        self.tableView.tableHeaderView = header;
+    }
 }
 
 - (void)changed {

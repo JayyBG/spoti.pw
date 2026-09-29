@@ -20,6 +20,11 @@ typedef NS_ENUM(NSInteger, SGStatsSource) { SGStatsSourceLive = 0, SGStatsSource
 - (void)eraseAll;
 - (BOOL)hasLivePlays;
 @property (nonatomic, readonly) NSInteger playCount;
+// The SQLite file itself, for a backup, and folding the WAL into it first so the copy is complete.
+- (NSString *)filePath;
+- (void)checkpoint;
+// Reads every play of another store's file (a backup) into this one. Answers how many were added.
++ (NSInteger)restoreFromFileAtPath:(NSString *)path;
 
 // top: an entity's rows in [since, until), grouped the way the page groups them. `until` 0 is now.
 - (NSArray<SGStatsEntry *> *)top:(SGStatsEntity)entity order:(SGStatsOrder)order since:(int64_t)since until:(int64_t)until limit:(NSInteger)limit;

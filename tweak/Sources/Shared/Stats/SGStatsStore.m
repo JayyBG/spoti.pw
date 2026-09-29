@@ -136,6 +136,17 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
     });
 }
 
+- (NSString *)filePath {
+    return [self path];
+}
+
+- (void)checkpoint {
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        sqlite3_exec(self->_db, "PRAGMA wal_checkpoint(TRUNCATE);", NULL, NULL, NULL);
+    });
+}
+
 - (void)eraseAll {
     dispatch_sync(_queue, ^{
         if (!self->_db && ![self open]) return;
@@ -463,6 +474,32 @@ static int64_t scalar(sqlite3 *db, const char *sql) {
         sqlite3_finalize(stmt);
     }
     return value;
+}
+
++ (NSInteger)restoreFromFileAtPath:(NSString *)path {
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(path.UTF8String, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK || !db) {
+        if (db) sqlite3_close(db);
+        return 0;
+    }
+    NSInteger added = 0;
+    NSString *sql = [NSString stringWithFormat:@"SELECT %s FROM plays;", kPlayColumns];
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, sql.UTF8String, -1, &stmt, NULL) == SQLITE_OK && stmt) {
+        NSMutableArray<SGStatsPlay *> *buffer = [NSMutableArray array];
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            [buffer addObject:playFromRow(stmt)];
+            if (buffer.count >= 1000) {
+                [SGStatsStore.shared addPlays:buffer];
+                added += buffer.count;
+                [buffer removeAllObjects];
+            }
+        }
+        if (buffer.count) { [SGStatsStore.shared addPlays:buffer]; added += buffer.count; }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+    return added;
 }
 
 - (int64_t)earliestTs { __block int64_t v = 0; dispatch_sync(_queue, ^{ if (!self->_db && ![self open]) return; v = scalar(self->_db, "SELECT IFNULL(MIN(ts),0) FROM plays;"); }); return v; }

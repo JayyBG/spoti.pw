@@ -7,6 +7,7 @@
 @class SGStatsEntry;
 
 #define SGKeyStats @"spotifyglass.stats"
+#define SGKeyStatsRecap @"spotifyglass.stats.recap"
 // Posted when the store gains plays from an import or loses them to an erase, so an open Stats page
 // reads again.
 #define SGStatsChangedNotification @"spotifyglass.stats.changed"
@@ -29,3 +30,6 @@ void SGStatsShareWrapped(UIViewController *owner, SGStatsEntity entity);
 // Starts the player observer that records plays. Called once from the tweak's %ctor; a no-op while
 // the switch is off.
 void SGStatsStart(void);
+
+// Schedules the weekly recap notification with the last seven days' numbers, if its switch is on.
+void SGStatsScheduleRecap(void);

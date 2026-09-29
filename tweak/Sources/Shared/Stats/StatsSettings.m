@@ -28,16 +28,25 @@
     [SGTopController() presentViewController:picker animated:YES completion:nil];
 }
 
+// A multi-year export is tens of thousands of rows across a ZIP; unpacking and inserting it on the
+// main thread is a hang the watchdog kills, so it runs on a utility queue and only the answer comes
+// back. The picker's security scope is opened on the main thread and held for that queue.
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSInteger added = 0;
-    NSError *error = nil;
-    for (NSURL *url in urls) added += [SGStatsImporter importFileAtURL:url error:&error];
-    [NSNotificationCenter.defaultCenter postNotificationName:SGStatsChangedNotification object:nil];
-    NSString *message = added ? [NSString stringWithFormat:@"Added %ld plays.", (long)added]
-                              : (error.localizedDescription ?: @"No plays found in that file.");
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import finished" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
-    [SGTopController() presentViewController:alert animated:YES completion:nil];
+    for (NSURL *url in urls) [url startAccessingSecurityScopedResource];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSInteger added = 0;
+        NSError *error = nil;
+        for (NSURL *url in urls) added += [SGStatsImporter importFileAtURL:url error:&error];
+        for (NSURL *url in urls) [url stopAccessingSecurityScopedResource];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:SGStatsChangedNotification object:nil];
+            NSString *message = added ? [NSString stringWithFormat:@"Added %ld plays.", (long)added]
+                                      : (error.localizedDescription ?: @"No plays found in that file.");
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import finished" message:message preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+            [SGTopController() presentViewController:alert animated:YES completion:nil];
+        });
+    });
 }
 
 @end

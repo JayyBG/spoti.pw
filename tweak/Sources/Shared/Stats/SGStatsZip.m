@@ -16,6 +16,8 @@ static uint32_t read32(const uint8_t *bytes, NSUInteger length, NSUInteger offse
 
 static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger offset, NSUInteger compressed, NSUInteger uncompressed, int method) {
     if (offset + compressed > length) return nil;
+    // A corrupt or ZIP64 size would ask for an allocation past memory; the export's files are far under this.
+    if (uncompressed > (256u << 20)) return nil;
     if (method == 0) return [NSData dataWithBytes:bytes + offset length:compressed];
     if (method != 8 || uncompressed == 0) return nil;
 
@@ -32,8 +34,8 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
     return output;
 }
 
-+ (NSDictionary<NSString *, NSData *> *)JSONEntriesInData:(NSData *)data {
-    if (data.length < 22) return @{};
++ (void)enumerateJSONEntriesInData:(NSData *)data using:(void (^)(NSData *json))block {
+    if (data.length < 22) return;
     const uint8_t *bytes = data.bytes;
     NSUInteger length = data.length;
 
@@ -44,12 +46,15 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
         if (read32(bytes, length, i) == 0x06054b50) { eocd = i; break; }
         if (i == 0) break;
     }
-    if (eocd == NSNotFound) return @{};
+    if (eocd == NSNotFound) {
+        SGLog(@"[stats] import: no ZIP central directory found");
+        return;
+    }
 
     NSUInteger count = read16(bytes, length, eocd + 10);
     NSUInteger offset = read32(bytes, length, eocd + 16);
+    SGLog(@"[stats] import: ZIP has %lu entries", (unsigned long)count);
 
-    NSMutableDictionary<NSString *, NSData *> *entries = [NSMutableDictionary dictionary];
     for (NSUInteger i = 0; i < count; i++) {
         if (read32(bytes, length, offset) != 0x02014b50) break;
         int method = read16(bytes, length, offset + 10);
@@ -62,8 +67,7 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
         if (offset + 46 + nameLength > length) break;
         NSString *name = [[NSString alloc] initWithBytes:bytes + offset + 46 length:nameLength encoding:NSUTF8StringEncoding];
 
-        NSUInteger next = offset + 46 + nameLength + extraLength + commentLength;
-        offset = next;
+        offset += 46 + nameLength + extraLength + commentLength;
 
         if (![name.pathExtension.lowercaseString isEqualToString:@"json"]) continue;
         if (compressed == 0xffffffffu || uncompressed == 0xffffffffu) continue;
@@ -71,10 +75,11 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
         NSUInteger localName = read16(bytes, length, localOffset + 26);
         NSUInteger localExtra = read16(bytes, length, localOffset + 28);
         NSUInteger start = localOffset + 30 + localName + localExtra;
-        NSData *entry = inflateEntry(bytes, length, start, compressed, uncompressed, method);
-        if (entry) entries[name] = entry;
+        @autoreleasepool {
+            NSData *entry = inflateEntry(bytes, length, start, compressed, uncompressed, method);
+            if (entry) block(entry);
+        }
     }
-    return entries;
 }
 
 @end

@@ -69,6 +69,7 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
             "INSERT INTO plays (ts, track_uri, title, artist_uri, artist, album_uri, album, artwork, ms, source)"
             " VALUES (?,?,?,?,?,?,?,?,?,?);", -1, &stmt, NULL);
         if (stmt) {
+            NSInteger batch = 0;
             for (SGStatsPlay *play in plays) {
                 sqlite3_bind_int64(stmt, 1, play.ts);
                 bindText(stmt, 2, play.trackURI);
@@ -82,6 +83,11 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
                 sqlite3_bind_int(stmt, 10, (int)play.source);
                 sqlite3_step(stmt);
                 sqlite3_reset(stmt);
+                // Committed as it goes, so a large import the watchdog ends still keeps what it read.
+                if (++batch % 2000 == 0) {
+                    sqlite3_exec(self->_db, "COMMIT;", NULL, NULL, NULL);
+                    sqlite3_exec(self->_db, "BEGIN;", NULL, NULL, NULL);
+                }
             }
             sqlite3_finalize(stmt);
         }

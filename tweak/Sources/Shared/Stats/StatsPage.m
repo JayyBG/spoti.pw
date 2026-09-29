@@ -121,7 +121,7 @@ static NSString *countText(NSInteger count) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Stats";
-    _range = SGStatsRange4Weeks;
+    _range = SGStatsRangeLifetime;
     _entity = SGStatsEntityTrack;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] style:UIBarButtonItemStylePlain target:self action:@selector(openSettings)];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:SGStatsChangedNotification object:nil];

@@ -203,11 +203,27 @@ static NSString *firstText(sqlite3 *db, const char *sql, NSString *value) {
     return result;
 }
 
-- (NSString *)anyTrackURIForAlbum:(NSString *)album {
+static NSString *firstTextArtist(sqlite3 *db, const char *sql, NSString *first, NSString *second) {
+    if (!first.length) return nil;
+    __block NSString *result = nil;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK && stmt) {
+        sqlite3_bind_text(stmt, 1, first.UTF8String, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, (second ?: @"").UTF8String, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *text = (const char *)sqlite3_column_text(stmt, 0);
+            if (text) result = @(text);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return result;
+}
+
+- (NSString *)anyTrackURIForAlbum:(NSString *)album artist:(NSString *)artist {
     __block NSString *result = nil;
     dispatch_sync(_queue, ^{
         if (!self->_db && ![self open]) return;
-        result = firstText(self->_db, "SELECT track_uri FROM plays WHERE LOWER(album) = LOWER(?) AND track_uri IS NOT NULL AND track_uri <> '' LIMIT 1;", album);
+        result = firstTextArtist(self->_db, "SELECT track_uri FROM plays WHERE LOWER(album) = LOWER(?) AND LOWER(artist) = LOWER(?) AND track_uri IS NOT NULL AND track_uri <> '' LIMIT 1;", album, artist);
     });
     return result;
 }

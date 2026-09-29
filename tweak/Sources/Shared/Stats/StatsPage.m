@@ -110,7 +110,7 @@ static NSCache<NSString *, UIImage *> *imageCache(void) {
 }
 
 static NSString *const kThumbs = @"spotifyglass.stats.thumb";
-static NSString *const kAlbumThumbs = @"spotifyglass.stats.albumthumb";
+static NSString *const kAlbumThumbs = @"spotifyglass.stats.albumthumb.v2";
 static NSString *const kArtistThumbs = @"spotifyglass.stats.artistthumb";
 static NSString *const kArtistURIs = @"spotifyglass.stats.artisturi";
 
@@ -226,7 +226,7 @@ static id dictValue(id object, NSString *key) {
     if (kind == SGStatsEntityAlbum) {
         NSString *cached = persistGet(kAlbumThumbs, key);
         if (cached.length) { [self load:cached into:view token:token]; return; }
-        NSString *source = entry.uri.length ? entry.uri : [SGStatsStore.shared anyTrackURIForAlbum:entry.name];
+        NSString *source = entry.uri.length ? entry.uri : [SGStatsStore.shared anyTrackURIForAlbum:entry.name artist:entry.subtitle];
         [self thumbForURI:source completion:^(NSString *thumb) {
             if (!thumb.length) return;
             persistSet(kAlbumThumbs, key, thumb);

@@ -26,7 +26,9 @@ typedef NS_ENUM(NSInteger, SGStatsSource) { SGStatsSourceLive = 0, SGStatsSource
 - (int64_t)latestTs;
 - (int64_t)earliestTsSince:(int64_t)since;
 - (int64_t)latestTsSince:(int64_t)since;
-// Any track URI of an album or artist, for artwork an imported play has no URI for.
-- (NSString *)anyTrackURIForAlbum:(NSString *)album;
+// Any track URI of an album or artist, for artwork an imported play has no URI for. The album is
+// taken with its artist: without it a common album name matches another artist's album of the same
+// name and the wrong cover.
+- (NSString *)anyTrackURIForAlbum:(NSString *)album artist:(NSString *)artist;
 - (NSString *)anyTrackURIForArtist:(NSString *)artist;
 @end

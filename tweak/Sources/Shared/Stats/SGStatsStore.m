@@ -47,6 +47,13 @@
         " ms INTEGER NOT NULL, source INTEGER NOT NULL DEFAULT 0);"
         "CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts);"
         "CREATE INDEX IF NOT EXISTS plays_track ON plays(track_uri);", NULL, NULL, NULL);
+    // One row per play: a re-import of the same history must not double it. The expression index
+    // needs the rows unique first, so if it will not build, the copies are removed and it is asked
+    // again.
+    if (sqlite3_exec(_db, "CREATE UNIQUE INDEX IF NOT EXISTS plays_key ON plays(ts, IFNULL(track_uri, title));", NULL, NULL, NULL) != SQLITE_OK) {
+        sqlite3_exec(_db, "DELETE FROM plays WHERE id NOT IN (SELECT MIN(id) FROM plays GROUP BY ts, IFNULL(track_uri, title));", NULL, NULL, NULL);
+        sqlite3_exec(_db, "CREATE UNIQUE INDEX IF NOT EXISTS plays_key ON plays(ts, IFNULL(track_uri, title));", NULL, NULL, NULL);
+    }
     return YES;
 }
 
@@ -66,7 +73,7 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
         sqlite3_exec(self->_db, "BEGIN;", NULL, NULL, NULL);
         sqlite3_stmt *stmt = NULL;
         sqlite3_prepare_v2(self->_db,
-            "INSERT INTO plays (ts, track_uri, title, artist_uri, artist, album_uri, album, artwork, ms, source)"
+            "INSERT OR IGNORE INTO plays (ts, track_uri, title, artist_uri, artist, album_uri, album, artwork, ms, source)"
             " VALUES (?,?,?,?,?,?,?,?,?,?);", -1, &stmt, NULL);
         if (stmt) {
             NSInteger batch = 0;

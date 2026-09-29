@@ -29,29 +29,35 @@ static NSDate *dateFromLegacy(NSString *endTime) {
     return [formatter dateFromString:endTime];
 }
 
+// Every field of Spotify's entries may be null, which arrives as NSNull and answers nothing, so each
+// is asked what it is before it is asked anything about itself.
 static SGStatsPlay *playFromEntry(NSDictionary *entry) {
-    NSString *title = entry[@"master_metadata_track_name"];
-    NSString *artist = entry[@"master_metadata_album_artist_name"];
-    NSString *album = entry[@"master_metadata_album_album_name"];
-    NSString *uri = entry[@"spotify_track_uri"];
-    NSDate *date = dateFromExtended(entry[@"ts"]);
-    NSNumber *ms = entry[@"ms_played"];
-    if (!title.length) {
+    BOOL extended = [entry[@"master_metadata_track_name"] isKindOfClass:NSString.class];
+    NSString *title, *artist = nil, *album = nil, *uri = nil;
+    NSDate *date;
+    NSNumber *ms;
+    if (extended) {
+        title = entry[@"master_metadata_track_name"];
+        artist = [entry[@"master_metadata_album_artist_name"] isKindOfClass:NSString.class] ? entry[@"master_metadata_album_artist_name"] : nil;
+        album = [entry[@"master_metadata_album_album_name"] isKindOfClass:NSString.class] ? entry[@"master_metadata_album_album_name"] : nil;
+        uri = [entry[@"spotify_track_uri"] isKindOfClass:NSString.class] ? entry[@"spotify_track_uri"] : nil;
+        date = dateFromExtended(entry[@"ts"]);
+        ms = [entry[@"ms_played"] isKindOfClass:NSNumber.class] ? entry[@"ms_played"] : nil;
+    } else {
         // The older, shorter export: {endTime, artistName, trackName, msPlayed}.
-        title = entry[@"trackName"];
-        artist = entry[@"artistName"];
+        title = [entry[@"trackName"] isKindOfClass:NSString.class] ? entry[@"trackName"] : nil;
+        artist = [entry[@"artistName"] isKindOfClass:NSString.class] ? entry[@"artistName"] : nil;
         date = dateFromLegacy(entry[@"endTime"]);
-        ms = entry[@"msPlayed"];
-        uri = nil;
+        ms = [entry[@"msPlayed"] isKindOfClass:NSNumber.class] ? entry[@"msPlayed"] : nil;
     }
-    if (![title isKindOfClass:NSString.class] || !title.length || !date || ![ms isKindOfClass:NSNumber.class]) return nil;
+    if (!title.length || !date || !ms) return nil;
 
     SGStatsPlay *play = [SGStatsPlay new];
     play.ts = (int64_t)date.timeIntervalSince1970;
-    play.trackURI = [uri isKindOfClass:NSString.class] ? uri : nil;
+    play.trackURI = uri;
     play.title = title;
-    play.artist = [artist isKindOfClass:NSString.class] ? artist : nil;
-    play.album = [album isKindOfClass:NSString.class] ? album : nil;
+    play.artist = artist;
+    play.album = album;
     play.ms = ms.longLongValue;
     play.source = SGStatsSourceImport;
     return play;

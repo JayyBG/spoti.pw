@@ -12,8 +12,12 @@ static void SGStatsException(NSException *exception) {
     %init;
     NSSetUncaughtExceptionHandler(&SGStatsException);
     SGStatsStart();
+    [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+        SGStatsWriteWidgetSummary();
+    }];
     // Late enough that the app and the notification centre are up.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         SGStatsScheduleRecap();
+        SGStatsWriteWidgetSummary();
     });
 }

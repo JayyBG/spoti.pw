@@ -36,3 +36,6 @@ void SGStatsStart(void);
 
 // Schedules the weekly recap notification with the last seven days' numbers, if its switch is on.
 void SGStatsScheduleRecap(void);
+
+// Writes the home screen widget's summary into the App Group and reloads its timelines.
+void SGStatsWriteWidgetSummary(void);

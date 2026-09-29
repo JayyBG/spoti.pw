@@ -59,6 +59,7 @@ static NSString *durationText(int64_t ms) {
         for (NSURL *url in urls) [url stopAccessingSecurityScopedResource];
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:SGStatsChangedNotification object:nil];
+            SGStatsWriteWidgetSummary();
             NSString *message = added ? [NSString stringWithFormat:@"Added %ld plays.\nTotal %ld, history %@.",
                                                                 (long)added, (long)SGStatsStore.shared.playCount, historyRange()]
                                       : (error.localizedDescription ?: @"No plays found in that file.");
@@ -122,6 +123,7 @@ static void eraseStats(void) {
     [alert addAction:[UIAlertAction actionWithTitle:@"Erase" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         [SGStatsStore.shared eraseAll];
         [NSNotificationCenter.defaultCenter postNotificationName:SGStatsChangedNotification object:nil];
+        SGStatsWriteWidgetSummary();
     }]];
     [SGTopController() presentViewController:alert animated:YES completion:nil];
 }

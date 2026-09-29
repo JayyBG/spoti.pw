@@ -93,8 +93,11 @@ if xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
   EXT_DIR="$ROOT/out/extension"
   unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
   "$ROOT/scripts/build-extension.sh" "$ROOT/out/.info.plist" "$EXT_DIR"
+  # A failure leaves the IPA as it was, without the widget.
+  "$ROOT/scripts/build-widget.sh" "$ROOT/out/.info.plist" "$EXT_DIR" || echo "    the stats widget failed: building without it"
   rm -f "$ROOT/out/.info.plist"
   FILES+=("$EXT_DIR/SpotifyGlassLiveActivity.appex")
+  [ -f "$EXT_DIR/SpotifyGlassWidget.appex/SpotifyGlassWidget" ] && FILES+=("$EXT_DIR/SpotifyGlassWidget.appex")
 else
   echo "==> no Xcode selected: building without the Live Activity extension"
 fi
@@ -130,6 +133,22 @@ if unzip -l "$OUT" "$WIDGET_BIN" >/dev/null 2>&1; then
   rm -rf "$PATCH"
 else
   echo "    no WidgetExtension.appex in this IPA"
+fi
+
+# The stats widget reads the App Group too, so the shim goes into it the same way.
+STATS_WIDGET_BIN="${APP_DIR}PlugIns/SpotifyGlassWidget.appex/SpotifyGlassWidget"
+if unzip -l "$OUT" "$STATS_WIDGET_BIN" >/dev/null 2>&1; then
+  echo "==> loading the App Group shim in the stats widget"
+  PATCH="$(mktemp -d)"
+  unzip -q "$OUT" "$STATS_WIDGET_BIN" -d "$PATCH"
+  "$ROOT/scripts/insert-dylib.py" "$PATCH/$STATS_WIDGET_BIN" @rpath/SpotifyGlassAppGroups.dylib
+  # Our own appex was only ad-hoc signed, so it has no entitlements to reapply; the IPA is signed
+  # again by whoever installs it either way.
+  ldid -e "$PATCH/$STATS_WIDGET_BIN" > "$PATCH/ents.plist" 2>/dev/null || true
+  if [ -s "$PATCH/ents.plist" ]; then ldid -S"$PATCH/ents.plist" "$PATCH/$STATS_WIDGET_BIN"; fi
+  OUT_ABS="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
+  (cd "$PATCH" && zip -q "$OUT_ABS" "$STATS_WIDGET_BIN")
+  rm -rf "$PATCH"
 fi
 
 echo "==> adding the alternate app icons"

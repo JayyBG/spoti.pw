@@ -64,12 +64,12 @@ static NSString *countText(NSInteger count) {
 
 #pragma mark - artwork cache
 
+// Artwork for a row. A track's picture is the album cover, so an album gets the picture of any track
+// on it, and an artist gets theirs through a track's embed page, which carries the artist URI the
+// import never has; the public oEmbed endpoint answers with the picture for a URI of any kind. What
+// is found is remembered, so a row is fetched once.
 @interface SGStatsArtwork : NSObject
-+ (UIImage *)tileFor:(NSString *)name;
-+ (void)load:(NSString *)url into:(UIImageView *)view;
-// Cover art for a row that has a Spotify URI but no image URL: the imported export carries the track
-// URI only, so the public oEmbed endpoint answers with the thumbnail. Spotify:track:id -> /track/id.
-+ (void)loadURI:(NSString *)uri into:(UIImageView *)view;
++ (void)fill:(UIImageView *)view entry:(SGStatsEntry *)entry kind:(SGStatsEntity)kind;
 @end
 
 @implementation SGStatsArtwork
@@ -109,21 +109,23 @@ static NSCache<NSString *, UIImage *> *imageCache(void) {
     return cache;
 }
 
-+ (void)load:(NSString *)url into:(UIImageView *)view {
-    if (!url.length) return;
-    UIImage *cached = [imageCache() objectForKey:url];
-    if (cached) { view.image = cached; return; }
-    NSURL *address = [NSURL URLWithString:url];
-    if (!address) return;
-    view.accessibilityIdentifier = url;
-    [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        UIImage *image = data ? [UIImage imageWithData:data] : nil;
-        if (!image) return;
-        [imageCache() setObject:image forKey:url];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if ([view.accessibilityIdentifier isEqualToString:url]) view.image = image;
-        });
-    }] resume];
+static NSString *const kThumbs = @"spotifyglass.stats.thumb";
+static NSString *const kAlbumThumbs = @"spotifyglass.stats.albumthumb";
+static NSString *const kArtistThumbs = @"spotifyglass.stats.artistthumb";
+static NSString *const kArtistURIs = @"spotifyglass.stats.artisturi";
+
+static NSString *persistGet(NSString *map, NSString *key) {
+    NSDictionary *stored = [NSUserDefaults.standardUserDefaults dictionaryForKey:map];
+    id value = stored[key];
+    return [value isKindOfClass:NSString.class] ? value : nil;
+}
+
+static void persistSet(NSString *map, NSString *key, NSString *value) {
+    if (!key.length || !value.length) return;
+    NSDictionary *stored = [NSUserDefaults.standardUserDefaults dictionaryForKey:map];
+    NSMutableDictionary *dict = stored ? [stored mutableCopy] : [NSMutableDictionary dictionary];
+    dict[key] = value;
+    [NSUserDefaults.standardUserDefaults setObject:dict forKey:map];
 }
 
 static NSString *webURLForURI(NSString *uri) {
@@ -133,29 +135,126 @@ static NSString *webURLForURI(NSString *uri) {
     return nil;
 }
 
-+ (void)loadURI:(NSString *)uri into:(UIImageView *)view {
-    if (!uri.length) return;
-    static NSCache<NSString *, NSString *> *thumbs;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ thumbs = [NSCache new]; });
-    NSString *cached = [thumbs objectForKey:uri];
-    if (cached.length) { [self load:cached into:view]; return; }
-    NSString *web = webURLForURI(uri);
-    if (!web) return;
-    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://open.spotify.com/oembed"];
-    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"url" value:web]];
-    NSURL *address = components.URL;
+static id dictValue(id object, NSString *key) {
+    return [object isKindOfClass:NSDictionary.class] ? ((NSDictionary *)object)[key] : nil;
+}
+
++ (void)load:(NSString *)url into:(UIImageView *)view token:(NSString *)token {
+    if (!url.length) return;
+    UIImage *cached = [imageCache() objectForKey:url];
+    if (cached) { if ([view.accessibilityIdentifier isEqualToString:token]) view.image = cached; return; }
+    NSURL *address = [NSURL URLWithString:url];
     if (!address) return;
     [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        UIImage *image = data ? [UIImage imageWithData:data] : nil;
+        if (!image) return;
+        [imageCache() setObject:image forKey:url];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([view.accessibilityIdentifier isEqualToString:token]) view.image = image;
+        });
+    }] resume];
+}
+
++ (void)thumbForURI:(NSString *)uri completion:(void (^)(NSString *thumb))completion {
+    if (!uri.length) { completion(nil); return; }
+    NSString *cached = persistGet(kThumbs, uri);
+    if (cached.length) { completion(cached); return; }
+    NSString *web = webURLForURI(uri);
+    if (!web) { completion(nil); return; }
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://open.spotify.com/oembed"];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"url" value:web]];
+    [[NSURLSession.sharedSession dataTaskWithURL:components.URL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
         NSString *thumb = [json isKindOfClass:NSDictionary.class] ? json[@"thumbnail_url"] : nil;
         if (![thumb isKindOfClass:NSString.class] || !thumb.length) {
-            SGStatsLogLine(@"oembed: no thumbnail for %@ (error %@)", uri, error.localizedDescription);
+            SGStatsLogLine(@"oembed: no thumbnail for %@", uri);
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
             return;
         }
-        [thumbs setObject:thumb forKey:uri];
-        dispatch_async(dispatch_get_main_queue(), ^{ [self load:thumb into:view]; });
+        persistSet(kThumbs, uri, thumb);
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(thumb); });
     }] resume];
+}
+
+// The track's embed page carries its artists' URIs, which an imported play has no other way to get.
++ (void)artistURIForTrack:(NSString *)trackURI name:(NSString *)artistName completion:(void (^)(NSString *uri))completion {
+    NSString *cached = persistGet(kArtistURIs, artistName.lowercaseString);
+    if (cached.length) { completion(cached); return; }
+    NSString *web = webURLForURI(trackURI);
+    if (!web) { completion(nil); return; }
+    NSURL *embed = [NSURL URLWithString:[web stringByReplacingOccurrencesOfString:@"open.spotify.com/track/" withString:@"open.spotify.com/embed/track/"]];
+    if (!embed) { completion(nil); return; }
+    [[NSURLSession.sharedSession dataTaskWithURL:embed completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSString *html = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+        NSRange start = html ? [html rangeOfString:@"<script id=\"__NEXT_DATA__\" type=\"application/json\">"] : NSMakeRange(NSNotFound, 0);
+        NSRange end = start.location == NSNotFound ? NSMakeRange(NSNotFound, 0) : [html rangeOfString:@"</script>" options:0 range:NSMakeRange(NSMaxRange(start), html.length - NSMaxRange(start))];
+        NSDictionary *root = nil;
+        if (start.location != NSNotFound && end.location != NSNotFound) {
+            NSString *json = [html substringWithRange:NSMakeRange(NSMaxRange(start), end.location - NSMaxRange(start))];
+            id parsed = [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+            root = [parsed isKindOfClass:NSDictionary.class] ? parsed : nil;
+        }
+        id entity = dictValue(dictValue(dictValue(dictValue(dictValue(root, @"props"), @"pageProps"), @"state"), @"data"), @"entity");
+        NSArray *artists = dictValue(entity, @"artists");
+        NSString *match = nil, *fallback = nil;
+        for (id item in [artists isKindOfClass:NSArray.class] ? artists : @[]) {
+            NSString *name = dictValue(item, @"name"), *uri = dictValue(item, @"uri");
+            if (![uri isKindOfClass:NSString.class]) continue;
+            if (!fallback) fallback = uri;
+            if ([name isKindOfClass:NSString.class] && [name caseInsensitiveCompare:artistName] == NSOrderedSame) { match = uri; break; }
+        }
+        NSString *resolved = match ?: fallback;
+        if (resolved) persistSet(kArtistURIs, artistName.lowercaseString, resolved);
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(resolved); });
+    }] resume];
+}
+
++ (void)fill:(UIImageView *)view entry:(SGStatsEntry *)entry kind:(SGStatsEntity)kind {
+    NSString *token = entry.uri.length ? entry.uri : entry.name;
+    view.accessibilityIdentifier = token ?: @"";
+    view.image = [self tileFor:entry.name];
+    if (entry.artwork.length) { [self load:entry.artwork into:view token:token]; return; }
+
+    if (kind == SGStatsEntityTrack) {
+        [self thumbForURI:entry.uri completion:^(NSString *thumb) {
+            if (thumb.length) [self load:thumb into:view token:token];
+        }];
+        return;
+    }
+
+    NSString *key = entry.name.lowercaseString;
+    if (kind == SGStatsEntityAlbum) {
+        NSString *cached = persistGet(kAlbumThumbs, key);
+        if (cached.length) { [self load:cached into:view token:token]; return; }
+        NSString *source = entry.uri.length ? entry.uri : [SGStatsStore.shared anyTrackURIForAlbum:entry.name];
+        [self thumbForURI:source completion:^(NSString *thumb) {
+            if (!thumb.length) return;
+            persistSet(kAlbumThumbs, key, thumb);
+            [self load:thumb into:view token:token];
+        }];
+        return;
+    }
+
+    NSString *cached = persistGet(kArtistThumbs, key);
+    if (cached.length) { [self load:cached into:view token:token]; return; }
+    if (entry.uri.length) {
+        [self thumbForURI:entry.uri completion:^(NSString *thumb) {
+            if (!thumb.length) return;
+            persistSet(kArtistThumbs, key, thumb);
+            [self load:thumb into:view token:token];
+        }];
+        return;
+    }
+    NSString *track = [SGStatsStore.shared anyTrackURIForArtist:entry.name];
+    if (!track.length) return;
+    [self artistURIForTrack:track name:entry.name completion:^(NSString *artistURI) {
+        if (!artistURI.length) return;
+        [self thumbForURI:artistURI completion:^(NSString *thumb) {
+            if (!thumb.length) return;
+            persistSet(kArtistThumbs, key, thumb);
+            [self load:thumb into:view token:token];
+        }];
+    }];
 }
 
 @end
@@ -285,13 +384,10 @@ static NSString *webURLForURI(NSString *uri) {
     SGStatsEntry *entry = _entries[indexPath.row];
     cell.textLabel.text = [NSString stringWithFormat:@"%ld. %@", (long)(indexPath.row + 1), entry.name];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@ plays · %@", entry.subtitle.length ? [entry.subtitle stringByAppendingString:@" · "] : @"", countText(entry.plays), durationText(entry.ms)];
-    cell.imageView.image = [SGStatsArtwork tileFor:entry.name];
     cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
     cell.imageView.clipsToBounds = YES;
     cell.imageView.layer.cornerRadius = 6;
-    cell.imageView.accessibilityIdentifier = nil;
-    if (entry.artwork.length) [SGStatsArtwork load:entry.artwork into:cell.imageView];
-    else if (entry.uri.length) [SGStatsArtwork loadURI:entry.uri into:cell.imageView];
+    [SGStatsArtwork fill:cell.imageView entry:entry kind:_entity];
     return cell;
 }
 

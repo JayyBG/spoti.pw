@@ -185,11 +185,47 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
     return value;
 }
 
+// Albums and artists group by name, not URI: an imported play carries no URIs and a live one does,
+// so a URI key would split the same artist or album in two. Tracks keep their URI, which both
+// sources have.
+static NSString *firstText(sqlite3 *db, const char *sql, NSString *value) {
+    if (!value.length) return nil;
+    __block NSString *result = nil;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK && stmt) {
+        sqlite3_bind_text(stmt, 1, value.UTF8String, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *text = (const char *)sqlite3_column_text(stmt, 0);
+            if (text) result = @(text);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return result;
+}
+
+- (NSString *)anyTrackURIForAlbum:(NSString *)album {
+    __block NSString *result = nil;
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        result = firstText(self->_db, "SELECT track_uri FROM plays WHERE LOWER(album) = LOWER(?) AND track_uri IS NOT NULL AND track_uri <> '' LIMIT 1;", album);
+    });
+    return result;
+}
+
+- (NSString *)anyTrackURIForArtist:(NSString *)artist {
+    __block NSString *result = nil;
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        result = firstText(self->_db, "SELECT track_uri FROM plays WHERE LOWER(artist) = LOWER(?) AND track_uri IS NOT NULL AND track_uri <> '' LIMIT 1;", artist);
+    });
+    return result;
+}
+
 static NSString *entityKey(SGStatsEntity entity) {
     switch (entity) {
         case SGStatsEntityTrack: return @"COALESCE(track_uri, 'n:' || IFNULL(title,'') || '|' || IFNULL(artist,''))";
-        case SGStatsEntityAlbum: return @"COALESCE(album_uri, 'a:' || IFNULL(album,'') || '|' || IFNULL(artist,''))";
-        case SGStatsEntityArtist: return @"COALESCE(artist_uri, 'r:' || IFNULL(artist,''))";
+        case SGStatsEntityAlbum: return @"'a:' || LOWER(IFNULL(album,'')) || '|' || LOWER(IFNULL(artist,''))";
+        case SGStatsEntityArtist: return @"'r:' || LOWER(IFNULL(artist,''))";
     }
     return nil;
 }

@@ -6,13 +6,15 @@
 @implementation SGStatsImporter
 
 static NSDate *dateFromExtended(NSString *ts) {
-    static NSISO8601DateFormatter *formatter;
+    static NSISO8601DateFormatter *plain, *fractional;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        formatter = [NSISO8601DateFormatter new];
-        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+        plain = [NSISO8601DateFormatter new];
+        plain.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+        fractional = [NSISO8601DateFormatter new];
+        fractional.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
     });
-    return [formatter dateFromString:ts];
+    return [plain dateFromString:ts] ?: [fractional dateFromString:ts];
 }
 
 static NSDate *dateFromLegacy(NSString *endTime) {

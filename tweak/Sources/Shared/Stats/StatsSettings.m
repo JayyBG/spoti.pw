@@ -96,9 +96,12 @@ UIViewController *SGStatsSettingsPage(void) {
     SGModRow *erase = SGActionRow(@"Erase all stats", nil, ^{ eraseStats(); });
     erase.color = UIColor.systemRedColor;
     SGModRow *log = SGActionRow(@"Import log", @"What the last import did, kept across a crash", ^{
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import log" message:SGStatsLogTail(200) preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import log" message:SGStatsLogTail(500) preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Copy" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            UIPasteboard.generalPasteboard.string = SGStatsLogTail(500);
+        }]];
         [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { SGStatsLogClear(); }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
         [SGTopController() presentViewController:alert animated:YES completion:nil];
     });
 

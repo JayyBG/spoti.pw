@@ -51,6 +51,9 @@ static NSString *countText(NSInteger count) {
 @interface SGStatsArtwork : NSObject
 + (UIImage *)tileFor:(NSString *)name;
 + (void)load:(NSString *)url into:(UIImageView *)view;
+// Cover art for a row that has a Spotify URI but no image URL: the imported export carries the track
+// URI only, so the public oEmbed endpoint answers with the thumbnail. Spotify:track:id -> /track/id.
++ (void)loadURI:(NSString *)uri into:(UIImageView *)view;
 @end
 
 @implementation SGStatsArtwork
@@ -83,21 +86,56 @@ static NSString *countText(NSInteger count) {
     return image;
 }
 
-+ (void)load:(NSString *)url into:(UIImageView *)view {
-    if (!url.length) return;
+static NSCache<NSString *, UIImage *> *imageCache(void) {
     static NSCache<NSString *, UIImage *> *cache;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ cache = [NSCache new]; });
-    UIImage *cached = [cache objectForKey:url];
+    return cache;
+}
+
++ (void)load:(NSString *)url into:(UIImageView *)view {
+    if (!url.length) return;
+    UIImage *cached = [imageCache() objectForKey:url];
     if (cached) { view.image = cached; return; }
     NSURL *address = [NSURL URLWithString:url];
     if (!address) return;
+    view.accessibilityIdentifier = url;
     [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!data) return;
-        UIImage *image = [UIImage imageWithData:data];
+        UIImage *image = data ? [UIImage imageWithData:data] : nil;
         if (!image) return;
-        [cache setObject:image forKey:url];
-        dispatch_async(dispatch_get_main_queue(), ^{ view.image = image; });
+        [imageCache() setObject:image forKey:url];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([view.accessibilityIdentifier isEqualToString:url]) view.image = image;
+        });
+    }] resume];
+}
+
+static NSString *webURLForURI(NSString *uri) {
+    NSArray<NSString *> *parts = [uri componentsSeparatedByString:@":"];
+    if (parts.count == 3 && [parts[0] isEqualToString:@"spotify"]) return [NSString stringWithFormat:@"https://open.spotify.com/%@/%@", parts[1], parts[2]];
+    if ([uri hasPrefix:@"http"]) return uri;
+    return nil;
+}
+
++ (void)loadURI:(NSString *)uri into:(UIImageView *)view {
+    if (!uri.length) return;
+    static NSCache<NSString *, NSString *> *thumbs;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ thumbs = [NSCache new]; });
+    NSString *cached = [thumbs objectForKey:uri];
+    if (cached.length) { [self load:cached into:view]; return; }
+    NSString *web = webURLForURI(uri);
+    if (!web) return;
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"https://open.spotify.com/oembed"];
+    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"url" value:web]];
+    NSURL *address = components.URL;
+    if (!address) return;
+    [[NSURLSession.sharedSession dataTaskWithURL:address completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSDictionary *json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        NSString *thumb = [json isKindOfClass:NSDictionary.class] ? json[@"thumbnail_url"] : nil;
+        if (![thumb isKindOfClass:NSString.class] || !thumb.length) return;
+        [thumbs setObject:thumb forKey:uri];
+        dispatch_async(dispatch_get_main_queue(), ^{ [self load:thumb into:view]; });
     }] resume];
 }
 
@@ -228,8 +266,12 @@ static NSString *countText(NSInteger count) {
     cell.textLabel.text = [NSString stringWithFormat:@"%ld. %@", (long)(indexPath.row + 1), entry.name];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%@%@ plays · %@", entry.subtitle.length ? [entry.subtitle stringByAppendingString:@" · "] : @"", countText(entry.plays), durationText(entry.ms)];
     cell.imageView.image = [SGStatsArtwork tileFor:entry.name];
-    NSString *url = entry.artwork;
-    if (url.length) [SGStatsArtwork load:url into:cell.imageView];
+    cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
+    cell.imageView.clipsToBounds = YES;
+    cell.imageView.layer.cornerRadius = 6;
+    cell.imageView.accessibilityIdentifier = nil;
+    if (entry.artwork.length) [SGStatsArtwork load:entry.artwork into:cell.imageView];
+    else if (entry.uri.length) [SGStatsArtwork loadURI:entry.uri into:cell.imageView];
     return cell;
 }
 

@@ -1,6 +1,7 @@
 #import "Stats.h"
 #import "SGStatsStore.h"
 #import "SGStatsImport.h"
+#import "SGStatsLog.h"
 #import "Core/SGCore.h"
 #import "Settings/SGModPage.h"
 #import "Settings/SGPageStyle.h"
@@ -76,6 +77,12 @@ UIViewController *SGStatsSettingsPage(void) {
     SGModRow *plays = SGStatRow(@"Plays recorded", ^NSString *{ return @(SGStatsStore.shared.playCount).stringValue; });
     SGModRow *erase = SGActionRow(@"Erase all stats", nil, ^{ eraseStats(); });
     erase.color = UIColor.systemRedColor;
+    SGModRow *log = SGActionRow(@"Import log", @"What the last import did, kept across a crash", ^{
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import log" message:SGStatsLogTail(200) preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { SGStatsLogClear(); }]];
+        [SGTopController() presentViewController:alert animated:YES completion:nil];
+    });
 
     return [[SGModPage alloc] initWithTitle:@"Stats" intro:SGRestartNote sections:@[
         SGSection(@"Listening stats", @[
@@ -84,6 +91,7 @@ UIViewController *SGStatsSettingsPage(void) {
         ]),
         SGSection(@"Manage", @[
             SGWithSymbol(plays, @"number"),
+            SGWithSymbol(log, @"doc.text"),
             SGWithSymbol(erase, @"trash"),
         ]),
     ] footer:nil];

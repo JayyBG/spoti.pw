@@ -1,5 +1,5 @@
 #import "SGStatsZip.h"
-#import "Core/SGCore.h"
+#import "SGStatsLog.h"
 #import <zlib.h>
 
 static uint16_t read16(const uint8_t *bytes, NSUInteger length, NSUInteger offset) {
@@ -47,13 +47,13 @@ static NSData *inflateEntry(const uint8_t *bytes, NSUInteger length, NSUInteger 
         if (i == 0) break;
     }
     if (eocd == NSNotFound) {
-        SGLog(@"[stats] import: no ZIP central directory found");
+        SGStatsLogLine(@"zip: no central directory found");
         return;
     }
 
     NSUInteger count = read16(bytes, length, eocd + 10);
     NSUInteger offset = read32(bytes, length, eocd + 16);
-    SGLog(@"[stats] import: ZIP has %lu entries", (unsigned long)count);
+    SGStatsLogLine(@"zip: %lu entries", (unsigned long)count);
 
     for (NSUInteger i = 0; i < count; i++) {
         if (read32(bytes, length, offset) != 0x02014b50) break;

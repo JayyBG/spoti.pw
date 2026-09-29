@@ -41,7 +41,8 @@
         for (NSURL *url in urls) [url stopAccessingSecurityScopedResource];
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:SGStatsChangedNotification object:nil];
-            NSString *message = added ? [NSString stringWithFormat:@"Added %ld plays.", (long)added]
+            NSString *message = added ? [NSString stringWithFormat:@"Added %ld plays.\nTotal %ld, history %@.",
+                                                                (long)added, (long)SGStatsStore.shared.playCount, historyRange()]
                                       : (error.localizedDescription ?: @"No plays found in that file.");
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import finished" message:message preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];

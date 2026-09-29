@@ -136,7 +136,9 @@ static BOOL enumerateArrayEntries(NSData *data, void (^block)(NSDictionary *entr
                 SGStatsLogLine(@"EXCEPTION on %@: %@", name.lastPathComponent, exception.reason);
             }
         }];
-        SGStatsLogLine(@"import done: %ld plays from %ld files", (long)added, (long)files);
+        SGStatsStore *store = SGStatsStore.shared;
+        SGStatsLogLine(@"import done: %ld plays from %ld files; now %ld plays, %lld..%lld",
+                       (long)added, (long)files, (long)store.playCount, store.earliestTs, store.latestTs);
         if (added == 0) {
             if (error) *error = [NSError errorWithDomain:@"spotifyglass.stats" code:2 userInfo:@{NSLocalizedDescriptionKey: @"No plays found in that ZIP."}];
         }

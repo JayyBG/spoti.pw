@@ -124,6 +124,32 @@ static void bindText(sqlite3_stmt *stmt, int index, NSString *value) {
     return count;
 }
 
+- (int64_t)earliestTs {
+    __block int64_t value = 0;
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(self->_db, "SELECT IFNULL(MIN(ts),0) FROM plays;", -1, &stmt, NULL) == SQLITE_OK && stmt) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) value = sqlite3_column_int64(stmt, 0);
+            sqlite3_finalize(stmt);
+        }
+    });
+    return value;
+}
+
+- (int64_t)latestTs {
+    __block int64_t value = 0;
+    dispatch_sync(_queue, ^{
+        if (!self->_db && ![self open]) return;
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(self->_db, "SELECT IFNULL(MAX(ts),0) FROM plays;", -1, &stmt, NULL) == SQLITE_OK && stmt) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) value = sqlite3_column_int64(stmt, 0);
+            sqlite3_finalize(stmt);
+        }
+    });
+    return value;
+}
+
 static NSString *entityKey(SGStatsEntity entity) {
     switch (entity) {
         case SGStatsEntityTrack: return @"COALESCE(track_uri, 'n:' || IFNULL(title,'') || '|' || IFNULL(artist,''))";

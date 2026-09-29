@@ -57,6 +57,20 @@ NSString *SGStatsRowValue(void) {
     return @(SGStatsStore.shared.playCount).stringValue;
 }
 
+static NSString *historyRange(void) {
+    int64_t first = SGStatsStore.shared.earliestTs, last = SGStatsStore.shared.latestTs;
+    if (!first) return @"None";
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        formatter = [NSDateFormatter new];
+        formatter.dateFormat = @"d MMM yyyy";
+    });
+    NSString *from = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:first]];
+    NSString *to = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:last]];
+    return [NSString stringWithFormat:@"%@ – %@", from, to];
+}
+
 static void eraseStats(void) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Erase all stats?"
         message:@"Every recorded and imported play is deleted. This cannot be undone."
@@ -71,10 +85,11 @@ static void eraseStats(void) {
 
 UIViewController *SGStatsSettingsPage(void) {
     SGModRow *enable = SGOptionRow(@"Listening stats", @"Keeps a local history of what you play", SGKeyStats);
-    SGModRow *import = SGActionRow(@"Import streaming history", @"Spotify → Account → Privacy → Download your data (the .zip)", ^{
+    SGModRow *import = SGActionRow(@"Import streaming history", @"Use Spotify's Extended streaming history, not Account data", ^{
         [SGStatsImportUI.shared present];
     });
     SGModRow *plays = SGStatRow(@"Plays recorded", ^NSString *{ return @(SGStatsStore.shared.playCount).stringValue; });
+    SGModRow *range = SGStatRow(@"History range", ^NSString *{ return historyRange(); });
     SGModRow *erase = SGActionRow(@"Erase all stats", nil, ^{ eraseStats(); });
     erase.color = UIColor.systemRedColor;
     SGModRow *log = SGActionRow(@"Import log", @"What the last import did, kept across a crash", ^{
@@ -91,6 +106,7 @@ UIViewController *SGStatsSettingsPage(void) {
         ]),
         SGSection(@"Manage", @[
             SGWithSymbol(plays, @"number"),
+            SGWithSymbol(range, @"calendar"),
             SGWithSymbol(log, @"doc.text"),
             SGWithSymbol(erase, @"trash"),
         ]),
